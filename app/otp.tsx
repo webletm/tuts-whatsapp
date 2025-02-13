@@ -7,6 +7,7 @@ import {
 	Linking,
 	TouchableOpacity,
 	ActivityIndicator,
+	Alert,
 } from "react-native";
 import React, { useState } from "react";
 import Colors from "@/constants/Colors";
@@ -14,11 +15,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import MaskInput from "react-native-mask-input";
 import { router } from "expo-router";
+import {
+	isClerkAPIResponseError,
+	useSignIn,
+	useSignUp,
+} from "@clerk/clerk-expo";
 
 const otp = () => {
 	const [loading, setLoading] = useState("");
 	const [phoneNumber, setPhoneNumber] = useState("");
 	const keyboardVerticalOffset = Platform.OS === "ios" ? 90 : 0;
+	const { signUp, setActive } = useSignUp();
+	const { signIn } = useSignIn();
 
 	const openLink = () => {
 		Linking.openURL("https://www.whatsapp.com/legal/#terms-of-service");
@@ -26,28 +34,43 @@ const otp = () => {
 
 	const sendOtp = async () => {
 		setLoading(true);
-		// send otp
-		// const response = await fetch("https://api.example.com/otp", {
-		// 	method: "POST",
-		// 	body: JSON.stringify({ phoneNumber }),
-		// 	headers: {
-		// 		"Content-Type": "application/json",
-		// 	},
-		// });
-		// const data = await response.json();
-		// if (data.success) {
-		// 	// navigate to otp page
-		// 	navigation.navigate("otp", { phoneNumber });
-		// } else {
-		// 	alert("Failed to send OTP");
-		// }
-		setTimeout(() => {
-			setLoading(false);
-			//router.push("otp", { phone: phoneNumber });
+		try {
+			await signUp!.create({
+				phoneNumber,
+			});
+			signUp!.preparePhoneNumberVerification();
 			router.push(`/verify/${phoneNumber}`);
-		}, 2000);
+		} catch (err) {
+			console.log(err);
+			if (isClerkAPIResponseError(err)) {
+				if (err.errors[0].code === "form_identifier_already_exists") {
+					console.log("User already exists");
+					await trySignIn();
+				} else {
+					setLoading(false);
+					Alert.alert("Error", err.errors[0].message);
+				}
+			}
+		}
 	};
-	const trySignIn = async () => {};
+	const trySignIn = async () => {
+		const { supportedFirstFactors } = await signIn!.create({
+			identifier: phoneNumber,
+		});
+
+		const firstPhoneFactor = supportedFirstFactors.find((factor) => {
+			return factor.strategy === "phone_code";
+		});
+
+		const { phoneNumberId } = firstPhoneFactor;
+
+		await signIn!.prepareFirstFactor({
+			strategy: "phone_code",
+			phoneNumberId,
+		});
+
+		router.push(`/verify/${phoneNumber}?signin=true`);
+	};
 
 	return (
 		<SafeAreaProvider>
@@ -80,25 +103,27 @@ const otp = () => {
 								style={styles.input}
 								keyboardType="numeric"
 								autoFocus
-								placeholder="0400 000 000"
+								placeholder="+61 400 000 000"
 								value={phoneNumber}
 								onChangeText={(masked, unmasked) => {
-									setPhoneNumber(masked); // you can use the unmasked value as well
+									setPhoneNumber("+" + masked); // you can use the unmasked value as well
 
 									// assuming you typed "9" all the way:
 									console.log(masked); // (99) 99999-9999
 									console.log(unmasked); // 99999999999
 								}}
 								mask={[
+									`+`,
+									/\d/,
+									/\d/,
+
 									/\d/,
 									/\d/,
 									/\d/,
-									/\d/,
-									" ",
-									/\d/,
+
 									/\d/,
 									/\d/,
-									" ",
+									/\d/,
 									/\d/,
 									/\d/,
 									/\d/,
@@ -117,7 +142,7 @@ const otp = () => {
 							of Whatsapp.
 						</Text>
 
-						<View style={{ flex: 1 }} />
+						{/* <View style={{ flex: 1 }} /> */}
 
 						<TouchableOpacity
 							style={[

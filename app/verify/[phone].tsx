@@ -4,6 +4,7 @@ import {
 	StyleSheet,
 	TouchableOpacity,
 	Platform,
+	Alert,
 } from "react-native";
 import React, { useEffect, useState } from "react";
 import { Stack, useLocalSearchParams } from "expo-router";
@@ -14,6 +15,11 @@ import {
 	useBlurOnFulfill,
 	useClearByFocusCell,
 } from "react-native-confirmation-code-field";
+import {
+	isClerkAPIResponseError,
+	useSignIn,
+	useSignUp,
+} from "@clerk/clerk-expo";
 const CELL_COUNT = 6;
 
 const Page = () => {
@@ -28,6 +34,8 @@ const Page = () => {
 		value: code,
 		setValue: setCode,
 	});
+	const { signUp, setActive } = useSignUp();
+	const { signIn } = useSignIn();
 
 	useEffect(() => {
 		if (code.length === 6) {
@@ -41,15 +49,62 @@ const Page = () => {
 	}, [code]);
 
 	const verifyCode = async () => {
-		// verify code
+		try {
+			await signUp!.attemptPhoneNumberVerification({ code });
+			await setActive!({ session: signUp!.createdSessionId });
+		} catch (err) {
+			console.log(err, JSON.stringify(err, null, 2));
+			if (isClerkAPIResponseError(err)) {
+				Alert.alert("Error", err.errors[0].message);
+			}
+		}
 	};
 
 	const verifySignIn = async () => {
-		// verify sign in
+		try {
+			await signIn!.attemptFirstFactor({
+				strategy: "phone_code",
+				code,
+			});
+			await setActive!({ session: signIn!.createdSessionId });
+		} catch (err) {
+			console.log(err, JSON.stringify(err, null, 2));
+			if (isClerkAPIResponseError(err)) {
+				Alert.alert("Error", err.errors[0].message);
+			}
+		}
 	};
 
 	const resendCode = async () => {
 		// resend code
+		try {
+			if (signin === "true") {
+				const { supportedFirstFactors } = await signIn!.create({
+					identifier: phone,
+				});
+
+				const firstPhoneFactor = supportedFirstFactors.find((factor) => {
+					return factor.strategy === "phone_code";
+				});
+
+				const { phoneNumberId } = firstPhoneFactor;
+
+				await signIn!.prepareFirstFactor({
+					strategy: "phone_code",
+					phoneNumberId,
+				});
+			} else {
+				await signUp!.create({
+					phoneNumber: phone,
+				});
+				signUp!.preparePhoneNumberVerification();
+			}
+		} catch (err) {
+			console.log(err, JSON.stringify(err, null, 2));
+			if (isClerkAPIResponseError(err)) {
+				Alert.alert("Error", err.errors[0].message);
+			}
+		}
 	};
 
 	return (
